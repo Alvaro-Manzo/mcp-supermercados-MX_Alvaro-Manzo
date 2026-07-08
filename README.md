@@ -1,7 +1,7 @@
 # 🛒 mcp-supermercados-cl
 
 > Servidor **MCP** para buscar productos, comparar precios y armar la mejor lista
-> de compra en supermercados chilenos con Claude, ChatGPT u otro cliente MCP.
+> de compra en supermercados MEXICANOS con Claude, ChatGPT u otro cliente MCP.
 
 [![npm](https://img.shields.io/npm/v/mcp-supermercados-cl?logo=npm)](https://www.npmjs.com/package/mcp-supermercados-cl)
 ![node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)
