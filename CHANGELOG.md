@@ -4,6 +4,121 @@ Todas las versiones notables de `mcp-supermercados-cl`. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el proyecto usa
 [SemVer](https://semver.org/lang/es/).
 
+## [1.4.3] - 2026-07-09
+
+Corrige una condición de carrera del puente que hacía fallar cadenas cuando se
+consultaban en paralelo (`compare_stores`, `build_cheapest_basket`): en la
+práctica Tottus resolvía y Líder caía con "bloqueado".
+
+### Fixed
+
+- **Carrera al abrir el navegador** (`PlaywrightBridge.ensureContext`): las
+  cadenas se navegan en paralelo, y dos `launchPersistentContext` concurrentes
+  sobre el mismo `userDataDir` chocaban por el lock del perfil
+  (`Target page, context or browser has been closed`) → una cadena resolvía y la
+  otra fallaba de forma intermitente. Ahora se memoiza la **promesa** del
+  contexto, de modo que todas las llamadas concurrentes comparten un solo
+  navegador; si el lanzamiento falla, no queda cacheada la promesa rechazada.
+  Verificado contra los sitios reales: Líder y Tottus resuelven juntos.
+
+## [1.4.2] - 2026-07-09
+
+Hace usable el puente automático cuando el server corre por **`npx`** (Claude
+Desktop, etc.): antes solo cargaba Playwright si era dependencia local.
+
+### Fixed
+
+- **Carga de Playwright global con `npx`** (`loadPlaywright`): por `npx` el
+  `node_modules` del paquete es efímero y no ve el Playwright global. `NODE_PATH`
+  no ayuda —el bridge carga con `import()` (ESM) y `NODE_PATH` solo aplica a
+  `require()` (CommonJS), verificado—. Ahora, si el `import("playwright")` normal
+  falla, se resuelve el paquete global vía `createRequire` desde la carpeta que
+  indique la nueva variable `SUPERMERCADOS_PLAYWRIGHT_PATH` (salida de
+  `npm root -g` + `/playwright`). Verificado end-to-end: npx + esa variable →
+  Líder 46 productos.
+
+### Added
+
+- Variable `SUPERMERCADOS_PLAYWRIGHT_PATH` y guía de configuración para `npx` en
+  el README.
+
+## [1.4.1] - 2026-07-09
+
+Corrige el puente de navegador automático de la 1.4.0, que **nunca resolvía**
+Líder/Tottus por tres bugs detectados al validarlo contra los sitios reales con
+Playwright (los tests con fixtures no los veían). Ya verificado: Líder devuelve
+~46 productos y Tottus ~48.
+
+### Fixed
+
+- **Extracción de `__NEXT_DATA__` robusta al `nonce` de CSP** (`src/adapters/nextData.ts`):
+  el HTML traído por el navegador real inyecta `<script nonce="" id="__NEXT_DATA__" …>`
+  —con el `nonce` antes del `id`—, que el marcador literal no matcheaba, así que
+  Líder se reportaba como "bloqueado" pese a traer los datos. Líder y Tottus
+  comparten ahora `extractNextDataJson`/`hasNextData` (tolerantes a orden de
+  atributos). El fetch HTTP plano de las fixtures no lleva `nonce`, por eso el
+  bug no salía en los tests.
+- **`PlaywrightBridge.fetchSsrHtml` — navegación**: `waitUntil: "networkidle"`
+  nunca se cumplía (estos sitios tienen analytics/polling permanente y no quedan
+  idle) → timeout. Cambiado a `domcontentloaded`.
+- **`PlaywrightBridge.fetchSsrHtml` — espera del selector**: `waitForSelector`
+  esperaba `state: "visible"` por defecto, pero un `<script>` es invisible →
+  timeout eterno. Ahora pide `state: "attached"`.
+- 157 tests (incluye contrato del caso con `nonce`).
+
+## [1.4.0] - 2026-07-09
+
+Versión de **compra multi-cadena** y **automatización del puente de navegador**.
+Integra contribuciones de la comunidad ([#3](https://github.com/NLACE-COM/mcp-supermercados-cl/pull/3)
+de @dmnavalon) y cierra el [#2](https://github.com/NLACE-COM/mcp-supermercados-cl/issues/2).
+
+### Added
+
+- **`build_cheapest_basket`**: arma la canasta más barata "repartida". A
+  diferencia de `compare_stores` (que elige UNA cadena para toda la lista),
+  asigna CADA ítem a la cadena donde sale más barato (por precio por unidad) y
+  agrupa la compra por cadena. Devuelve `picks`, `plan`, `basketTotal`,
+  `singleStore`, `splitSaving` (ahorro de repartir vs comprar todo en una),
+  `mixedFormatItems` y `missing`. Prompt guiado `super_eficiente`.
+- **Puente de navegador manual para Líder y Tottus**: `search_products` acepta
+  `browserHtml` (HTML o JSON de `__NEXT_DATA__` traído de un navegador real que
+  ya pasó el antibot). Sin él y estando bloqueado, la tool devuelve una
+  respuesta accionable (`openUrl` + `browserSnippet` + `retryWith`) en vez de un
+  error seco.
+- **Puente de navegador automático** (`src/adapters/browserBridge.ts`): con
+  Playwright configurado por entorno (`SUPERMERCADOS_PLAYWRIGHT_PROFILE`, y
+  opcionales `SUPERMERCADOS_PLAYWRIGHT_CHANNEL` / `_HEADLESS`), el servidor
+  navega solo reusando el perfil de Chrome del usuario y resuelve Líder/Tottus
+  sin intervención. Aplica a `search_products`, `compare_stores` y
+  `build_cheapest_basket`. Sin configurar, se mantiene el flujo manual. El
+  servidor sigue sin ver credenciales.
+
+### Changed
+
+- `PlaywrightBridge.fetchSsrHtml()` espera `#__NEXT_DATA__` en el DOM
+  (`networkidle` + selector) antes de leer, porque el App Router de estas
+  cadenas sirve el HTML por streaming (`self.__next_f`).
+- Documentación corregida: el bloqueo de Líder es por **fingerprint del cliente**
+  (TLS/JA3 + PerimeterX + F5 BIG-IP, `307 → /blocked`), no por reputación de IP;
+  la nota anterior ("responde desde IP residencial") quedó obsoleta.
+- 13 tools, 153 tests. README y `CLAUDE.md` actualizados.
+
+## [1.3.0] - 2026-07-07
+
+### Added
+
+- **Alcance de precios por sucursal** (`priceScope` / `priceScopeNote`): las
+  respuestas de `search_products`, `build_list` y `compare_stores` advierten
+  cuándo los precios son de catálogo nacional (sin `branchId`) y pueden diferir
+  de la sucursal del usuario.
+
+### Fixed
+
+- **Bloqueo de Líder detectado**: PerimeterX a veces responde `307 → /blocked`
+  ("Robot or human", sin `__NEXT_DATA__`) en vez de `403`, lo que se confundía
+  con "0 resultados". `isLiderBlockedHtml` lo detecta y lanza un error `blocked`
+  accionable. 136 tests.
+
 ## [1.2.0] - 2026-07-07
 
 Versión enfocada en **experiencia del usuario**.
@@ -108,6 +223,11 @@ Versión enfocada en **experiencia del usuario**.
   cadenas. Precios normal/socio separados, precio por unidad normalizado,
   bundles multi-compra. Sesión sin credenciales en el servidor. Licencia MIT.
 
+[1.4.3]: https://github.com/NLACE-COM/mcp-supermercados-cl/releases/tag/v1.4.3
+[1.4.2]: https://github.com/NLACE-COM/mcp-supermercados-cl/releases/tag/v1.4.2
+[1.4.1]: https://github.com/NLACE-COM/mcp-supermercados-cl/releases/tag/v1.4.1
+[1.4.0]: https://github.com/NLACE-COM/mcp-supermercados-cl/releases/tag/v1.4.0
+[1.3.0]: https://github.com/NLACE-COM/mcp-supermercados-cl/releases/tag/v1.3.0
 [1.2.0]: https://github.com/NLACE-COM/mcp-supermercados-cl/releases/tag/v1.2.0
 [1.1.0]: https://github.com/NLACE-COM/mcp-supermercados-cl/releases/tag/v1.1.0
 [1.0.3]: https://github.com/NLACE-COM/mcp-supermercados-cl/releases/tag/v1.0.3

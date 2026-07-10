@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import type { BrowserBridge } from "./session.js";
 
 /**
@@ -14,8 +15,11 @@ import type { BrowserBridge } from "./session.js";
  *     npm install playwright
  *     npx playwright install chromium   # o usa channel "chrome"
  *
- * Este helper corre junto al cliente (no dentro del servidor MCP por stdio):
- * úsalo en un script Node para obtener el JSON/HTML y pasárselo a las tools.
+ * El servidor MCP corre en la máquina del usuario (IP residencial), así que
+ * puede lanzar este puente directamente: `getConfiguredBrowserBridge()` lo
+ * instancia desde variables de entorno y las tools de búsqueda/comparación lo
+ * usan como fallback automático (ver `browserBridge.ts`). También sirve suelto
+ * en un script Node para obtener el JSON/HTML y pasárselo a las tools a mano.
  *
  * OJO: `launchPersistentContext` toma el perfil real; Chrome debe estar
  * cerrado (o usa un `userDataDir` copiado) para evitar el lock del perfil.
@@ -48,28 +52,56 @@ interface PlaywrightPage {
   goto: (url: string, opts?: Record<string, unknown>) => Promise<unknown>;
   evaluate: <T>(fn: string) => Promise<T>;
   content: () => Promise<string>;
+  waitForSelector: (
+    selector: string,
+    opts?: Record<string, unknown>
+  ) => Promise<unknown>;
 }
 
 async function loadPlaywright(): Promise<PlaywrightLike> {
+  // 1) Resolución normal: funciona si Playwright es dependencia local del
+  //    paquete (repo clonado con `npm install playwright`). Especificador en
+  //    variable para que TypeScript no intente resolver el módulo opcional.
   try {
-    // Especificador en variable: playwright es opcional y no está en las
-    // deps, así que TypeScript no debe intentar resolver el módulo aquí. El
-    // import dinámico solo funciona si el usuario lo instaló.
     const moduleName = "playwright";
     return (await import(moduleName)) as unknown as PlaywrightLike;
   } catch {
-    throw new Error(
-      "Playwright no está instalado. Para el puente automatizado ejecuta: " +
-        "`npm install playwright` (y `npx playwright install chromium`). " +
-        "Sin él, usa el flujo manual: ejecuta el browserSnippet de la tool en " +
-        "el navegador y pasa el JSON de vuelta."
-    );
+    // sigue al fallback por ruta explícita.
   }
+
+  // 2) Ruta explícita por entorno: imprescindible cuando el server corre por
+  //    `npx` (su node_modules efímero no tiene Playwright) y este está
+  //    instalado GLOBAL. NODE_PATH no sirve para import ESM; createRequire
+  //    resuelve el entry del paquete desde su directorio.
+  //    Valor: la carpeta del paquete, ej. la salida de `npm root -g` + "/playwright".
+  const explicit = process.env.SUPERMERCADOS_PLAYWRIGHT_PATH?.trim();
+  if (explicit) {
+    try {
+      const require = createRequire(import.meta.url);
+      return require(explicit) as PlaywrightLike;
+    } catch {
+      // cae al error guía de abajo.
+    }
+  }
+
+  throw new Error(
+    "Playwright no está disponible. Para el puente automatizado instálalo " +
+      "(`npm install playwright` en el repo, o `npm install -g playwright` si " +
+      "corres por npx) y, si es global, apunta SUPERMERCADOS_PLAYWRIGHT_PATH a " +
+      'su carpeta (la salida de `npm root -g` + "/playwright"). Sin él, usa el ' +
+      "flujo manual: ejecuta el browserSnippet de la tool en el navegador y pasa " +
+      "el JSON de vuelta."
+  );
 }
 
 export class PlaywrightBridge implements BrowserBridge {
   private readonly opts: PlaywrightBridgeOptions;
-  private context?: PlaywrightContext;
+  // Se memoiza la PROMESA (no el context ya resuelto): `compare_stores` y
+  // `build_cheapest_basket` navegan las cadenas en paralelo, y dos
+  // `launchPersistentContext` concurrentes sobre el mismo `userDataDir` chocan
+  // por el lock del perfil ("Target page, context or browser has been closed").
+  // Compartiendo una sola promesa, todas las llamadas reusan el mismo navegador.
+  private contextPromise?: Promise<PlaywrightContext>;
 
   constructor(opts: PlaywrightBridgeOptions) {
     this.opts = opts;
@@ -79,14 +111,22 @@ export class PlaywrightBridge implements BrowserBridge {
     return this.opts.baseUrl ?? "https://www.jumbo.cl";
   }
 
-  private async ensureContext(): Promise<PlaywrightContext> {
-    if (this.context) return this.context;
-    const pw = await loadPlaywright();
-    this.context = await pw.chromium.launchPersistentContext(this.opts.userDataDir, {
-      headless: this.opts.headless ?? false,
-      ...(this.opts.channel ? { channel: this.opts.channel } : {}),
-    });
-    return this.context;
+  private ensureContext(): Promise<PlaywrightContext> {
+    if (!this.contextPromise) {
+      this.contextPromise = (async () => {
+        const pw = await loadPlaywright();
+        return pw.chromium.launchPersistentContext(this.opts.userDataDir, {
+          headless: this.opts.headless ?? false,
+          ...(this.opts.channel ? { channel: this.opts.channel } : {}),
+        });
+      })();
+      // Si el lanzamiento falla, no dejar cacheada una promesa rechazada: el
+      // próximo intento debe poder relanzar el navegador.
+      this.contextPromise.catch(() => {
+        this.contextPromise = undefined;
+      });
+    }
+    return this.contextPromise;
   }
 
   /**
@@ -113,8 +153,44 @@ export class PlaywrightBridge implements BrowserBridge {
     return page.content();
   }
 
+  /**
+   * HTML de una página SSR de Next.js (Líder/Tottus) ya renderizada. A
+   * diferencia de `fetchAuthedHtml`, espera a que el DOM tenga el
+   * `<script id="__NEXT_DATA__">` antes de serializar: esas cadenas cargan tras
+   * el desafío antibot (PerimeterX ejecuta JS) y con App Router el HTML inicial
+   * llega por streaming (`self.__next_f`), así que leer demasiado pronto da un
+   * documento sin `__NEXT_DATA__` que el parser confundiría con "0 resultados"
+   * (ver issue #2). Con la espera del selector, `page.content()` ya trae el
+   * `<script id="__NEXT_DATA__">` que esperan los extractores.
+   *
+   * OJO (dos trampas verificadas contra el sitio real):
+   *  - `waitUntil: "networkidle"` NO sirve: estos sitios tienen analytics/polling
+   *    permanente y nunca quedan idle → timeout. Se usa `domcontentloaded`.
+   *  - `waitForSelector` por defecto espera `state: "visible"`, pero un `<script>`
+   *    es invisible → timeout eterno. Hay que pedir `state: "attached"`.
+   */
+  async fetchSsrHtml(url: string, timeoutMs = 20_000): Promise<string> {
+    const ctx = await this.ensureContext();
+    const page = await ctx.newPage();
+    const full = url.startsWith("http") ? url : this.baseUrl() + url;
+    await page.goto(full, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+    // Si el selector no aparece (bloqueo persistente), devolvemos lo que haya:
+    // el adaptador ya distingue el HTML de bloqueo (isLiderBlockedHtml) y lanza
+    // un error accionable, mejor que colgarse esperando el selector.
+    try {
+      await page.waitForSelector('script[id="__NEXT_DATA__"]', {
+        state: "attached",
+        timeout: timeoutMs,
+      });
+    } catch {
+      // sin __NEXT_DATA__: cae al manejo de bloqueo del adaptador.
+    }
+    return page.content();
+  }
+
   async close(): Promise<void> {
-    await this.context?.close();
-    this.context = undefined;
+    const p = this.contextPromise;
+    this.contextPromise = undefined;
+    if (p) await (await p).close().catch(() => {});
   }
 }

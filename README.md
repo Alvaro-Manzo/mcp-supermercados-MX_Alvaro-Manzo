@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/nlace-com-mcp-supermercados-cl-badge.png)](https://mseep.ai/app/nlace-com-mcp-supermercados-cl)
+
 # 🛒 mcp-supermercados-cl
 
 > Servidor **MCP** para buscar productos, comparar precios y armar la mejor lista
@@ -5,7 +7,7 @@
 
 [![npm](https://img.shields.io/npm/v/mcp-supermercados-cl?logo=npm)](https://www.npmjs.com/package/mcp-supermercados-cl)
 ![node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)
-![tests](https://img.shields.io/badge/tests-132%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-157%20passing-brightgreen)
 ![license](https://img.shields.io/badge/licencia-MIT-blue)
 
 El foco es **profundidad en la cadena donde tú ya compras** — precios club,
@@ -232,6 +234,53 @@ aparte si lo quieres:
 npm install playwright
 npx playwright install chromium
 ```
+
+#### Líder y Tottus: puente automático contra el antibot
+
+Líder y Tottus bloquean el fetch del servidor por **fingerprint del cliente**
+(TLS/JA3 + desafío JS de PerimeterX; en Líder además F5 BIG-IP con `307 → /blocked`).
+No es tu IP: la misma IP en un navegador real carga los datos ([issue #2](https://github.com/NLACE-COM/mcp-supermercados-cl/issues/2)).
+Hay dos formas de sortearlo en `search_products`, `compare_stores` y
+`build_cheapest_basket`:
+
+1. **Manual**: `search_products` devuelve `openUrl` + `browserSnippet`; abres esa
+   búsqueda en tu navegador, ejecutas el snippet (lee `__NEXT_DATA__` del DOM) y
+   reintentas pasando el resultado en `browserHtml`.
+2. **Automático**: si configuras el puente Playwright por entorno, el servidor
+   navega solo reusando tu perfil de Chrome (nunca ve tu token) y resuelve esas
+   cadenas sin intervención. Variables (en la sección `env` de tu cliente MCP):
+
+   | Variable                            | Requerida | Descripción                                                                                                                                                  |
+   | ----------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+   | `SUPERMERCADOS_PLAYWRIGHT_PROFILE`  | sí        | Carpeta del perfil de Chrome con tu sesión (`userDataDir`). Activa el puente.                                                                                |
+   | `SUPERMERCADOS_PLAYWRIGHT_PATH`     | con `npx` | Carpeta del paquete `playwright` cuando está instalado **global** (por `npx` el server no lo resuelve solo). Valor: salida de `npm root -g` + `/playwright`. |
+   | `SUPERMERCADOS_PLAYWRIGHT_CHANNEL`  | no        | `chrome` o `msedge` para usar el navegador instalado (si no, el Chromium de Playwright).                                                                     |
+   | `SUPERMERCADOS_PLAYWRIGHT_HEADLESS` | no        | `1` para headless (por defecto con ventana, evita gatillar antibots/2FA).                                                                                    |
+
+   Requiere Playwright instalado y **Chrome cerrado** (para no chocar con el lock
+   del perfil). Sin estas variables, el comportamiento es el manual de arriba.
+
+   **Con `npx` (Claude Desktop, etc.):** el paquete corre en un cache efímero sin
+   Playwright, así que instálalo global (`npm install -g playwright`) y apunta
+   `SUPERMERCADOS_PLAYWRIGHT_PATH` a su carpeta. `NODE_PATH` **no** sirve: el
+   server carga Playwright con `import()` (ESM) y `NODE_PATH` solo aplica a
+   `require()` de CommonJS.
+
+   ```json
+   {
+     "mcpServers": {
+       "supermercados-cl": {
+         "command": "npx",
+         "args": ["-y", "mcp-supermercados-cl@latest"],
+         "env": {
+           "SUPERMERCADOS_PLAYWRIGHT_PROFILE": "/Users/tu-usuario/Library/Application Support/Google/Chrome",
+           "SUPERMERCADOS_PLAYWRIGHT_PATH": "/ruta/de/npm-root-g/playwright",
+           "SUPERMERCADOS_PLAYWRIGHT_CHANNEL": "chrome"
+         }
+       }
+     }
+   }
+   ```
 
 ---
 

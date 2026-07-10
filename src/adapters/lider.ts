@@ -15,11 +15,10 @@ import type {
 } from "../core/types.js";
 import { defaultHttpClient, type HttpFetcher } from "../http/client.js";
 import { NotImplementedError, type StoreAdapter } from "./base.js";
+import { extractNextDataJson, hasNextData } from "./nextData.js";
 
 /**
- * Adaptador Lider (Walmart Chile, plataforma Glass). Verificado 2026-07-07
- * desde IP residencial: pese a PerimeterX, la búsqueda SSR entrega los datos
- * sin necesitar el GraphQL ni Playwright:
+ * Adaptador Lider (Walmart Chile, plataforma Glass). La búsqueda vive en el SSR:
  *
  *   GET https://super.lider.cl/search?query={query}
  *
@@ -28,9 +27,18 @@ import { NotImplementedError, type StoreAdapter } from "./base.js";
  *  - unitPrice: precio por unidad ("$1.190 x kg").
  *  - memberPriceString: precio socio cuando aplica.
  *
- * Nota: desde datacenter PerimeterX bloquea; en la máquina del usuario (IP
- * residencial, como corre el MCP) responde. Si un día bloquea, el fallback
- * es un puente de navegador (session.fetchAuthedHtml).
+ * Bloqueo (issue #2, verificado 2026-07-08): el sitio bloquea CUALQUIER cliente
+ * HTTP plano —incluso desde IP residencial— por fingerprint del cliente (TLS/JA3
+ * + desafío JS de PerimeterX, con F5 BIG-IP delante: cookie `TS...`). Responde
+ * `307 → /blocked` (no 403), sin `__NEXT_DATA__`. Headers Chrome completos +
+ * HTTP/2 no lo evitan; la MISMA IP en un navegador real sí carga los datos.
+ * (La nota anterior —"desde IP residencial responde"— quedó obsoleta.)
+ *
+ * Fallback operativo: puente de navegador (`session.fetchAuthedHtml`). El usuario
+ * abre la búsqueda en su navegador real (que ya pasó el antibot) y pasa el
+ * contenido; `search_products` lo acepta vía `browserHtml`. Ojo: leer del DOM
+ * (`document.getElementById('__NEXT_DATA__')`), no un fetch same-origin —el App
+ * Router devuelve streaming (`self.__next_f`) sin el `<script id="__NEXT_DATA__">`.
  */
 
 const BASE = "https://super.lider.cl";
@@ -42,7 +50,21 @@ const NEXT_DATA_MARKER = '<script id="__NEXT_DATA__" type="application/json">';
  * confundía con "0 resultados", que suena a "no venden el producto".
  */
 export function isLiderBlockedHtml(html: string): boolean {
-  return html.includes("Robot or human") || !html.includes(NEXT_DATA_MARKER);
+  return html.includes("Robot or human") || !hasNextData(html);
+}
+
+/**
+ * Normaliza lo que entrega el navegador para el puente de búsqueda de Líder.
+ * Acepta el HTML completo de la página (con `<script id="__NEXT_DATA__">`) o
+ * solo el JSON de `__NEXT_DATA__`, y devuelve siempre HTML parseable por
+ * `extractLiderProducts`. Es el fallback cuando PerimeterX bloquea el fetch
+ * directo del servidor: el usuario abre la búsqueda en su navegador real (que
+ * sí pasa el antibot) y nos pasa ese contenido.
+ */
+export function wrapLiderHtml(browserContent: string): string {
+  const s = browserContent.trim();
+  if (hasNextData(s)) return s;
+  return `${NEXT_DATA_MARKER}${s}</script>`;
 }
 
 interface LiderPriceInfo {
@@ -82,7 +104,9 @@ export class LiderAdapter implements StoreAdapter {
     const html = await this.fetchSearchHtml(query, page, opts.session);
     if (isLiderBlockedHtml(html)) {
       throw new Error(
-        'Líder bloqueó la petición: devolvió su página antibot "Robot or human" (PerimeterX) en vez de resultados.'
+        'Líder bloqueó la petición: su antibot (PerimeterX + F5 BIG-IP, 307 → /blocked, "Robot or human") ' +
+          "respondió en vez de los resultados. Es fingerprint del cliente, no tu IP: abre la búsqueda en un " +
+          "navegador real y reintenta pasando browserHtml a search_products."
       );
     }
     const products = extractLiderProducts(html);
@@ -178,14 +202,11 @@ function imageUrl(p: LiderProduct): string | undefined {
  * El árbol de Glass es profundo; se recorre buscando el arreglo de productos.
  */
 export function extractLiderProducts(html: string): LiderProduct[] {
-  const start = html.indexOf(NEXT_DATA_MARKER);
-  if (start === -1) return [];
-  const from = start + NEXT_DATA_MARKER.length;
-  const end = html.indexOf("</script>", from);
-  if (end === -1) return [];
+  const json = extractNextDataJson(html);
+  if (json === null) return [];
   let data: unknown;
   try {
-    data = JSON.parse(html.slice(from, end));
+    data = JSON.parse(json);
   } catch {
     return [];
   }
