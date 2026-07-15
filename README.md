@@ -252,6 +252,7 @@ Hay dos formas de sortearlo en `search_products`, `compare_stores` y
 
    | Variable                            | Requerida | Descripción                                                                                                                                                  |
    | ----------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+   | `SUPERMERCADOS_MARKET`              | no        | Mercado para textos/moneda del asistente: `mx` (default, MXN) o `cl` (CLP).                                                                                  |
    | `SUPERMERCADOS_PLAYWRIGHT_PROFILE`  | sí        | Carpeta del perfil de Chrome con tu sesión (`userDataDir`). Activa el puente.                                                                                |
    | `SUPERMERCADOS_PLAYWRIGHT_PATH`     | con `npx` | Carpeta del paquete `playwright` cuando está instalado **global** (por `npx` el server no lo resuelve solo). Valor: salida de `npm root -g` + `/playwright`. |
    | `SUPERMERCADOS_PLAYWRIGHT_CHANNEL`  | no        | `chrome` o `msedge` para usar el navegador instalado (si no, el Chromium de Playwright).                                                                     |

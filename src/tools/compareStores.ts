@@ -4,6 +4,7 @@ import { compareStores } from "../core/compare.js";
 import { availableStores } from "../core/registry.js";
 import { priceScopeInfo } from "../core/format.js";
 import { progressNotifier } from "./progress.js";
+import { getMarketConfig } from "../core/market.js";
 
 /**
  * compare_stores (fase 7): capacidad secundaria del plan. Estima el total
@@ -12,12 +13,13 @@ import { progressNotifier } from "./progress.js";
  * en cuando".
  */
 export function registerCompareStores(server: McpServer): void {
+  const { countryName } = getMarketConfig();
   server.registerTool(
     "compare_stores",
     {
       title: "Comparar cadenas",
       description:
-        "Estima el total de una misma lista (ítems en texto libre) en varias cadenas chilenas y señala la más " +
+        `Estima el total de una misma lista (ítems en texto libre) en varias cadenas de ${countryName} y señala la más ` +
         "barata entre las que tienen todos los productos. Devuelve por cadena el mejor match por ítem y el total. " +
         "IMPORTANTE: cada cadena resuelve el ítem por su cuenta, así que el 'más barato' puede ser un producto o " +
         "formato distinto; usa el campo `comparability` (same/similar/mixed por ítem) y compara por precio por " +

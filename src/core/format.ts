@@ -1,17 +1,20 @@
+import { getMarketConfig } from "./market.js";
+
 /**
- * Formato de cara al usuario (chileno). Las tools devuelven números crudos
+ * Formato de cara al usuario. Las tools devuelven números crudos
  * para que el modelo calcule, pero incluir también el texto formateado ayuda a
- * que responda parejo ("$12.345" en vez de 12345, ahorro en %).
+ * que responda parejo ("$12,345" en vez de 12345, ahorro en %).
  */
 
-/** CLP entero a texto chileno: 12345 -> "$12.345". */
+/** Entero en moneda local a texto: 12345 -> "$12,345" (MX) / "$12.345" (CL). */
 export function formatClp(value: number | undefined): string {
   if (value === undefined || !Number.isFinite(value)) return "—";
   const n = Math.round(value);
+  const { thousandSeparator } = getMarketConfig();
   const sign = n < 0 ? "-" : "";
   const digits = Math.abs(n)
     .toString()
-    .replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+    .replace(/\B(?=(\d{3})+(?!\d))/g, thousandSeparator);
   return `${sign}$${digits}`;
 }
 

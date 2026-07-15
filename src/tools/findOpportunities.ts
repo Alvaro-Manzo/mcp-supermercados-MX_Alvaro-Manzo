@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { findOpportunities } from "../core/opportunities.js";
 import { toolError } from "../core/errors.js";
+import { getMarketConfig } from "../core/market.js";
 
 /**
  * find_opportunities: las mejores oportunidades del momento (mayor descuento
@@ -10,13 +11,14 @@ import { toolError } from "../core/errors.js";
  * (carro/frecuentes) para destacar solo lo nuevo.
  */
 export function registerFindOpportunities(server: McpServer): void {
+  const { currencyCode } = getMarketConfig();
   server.registerTool(
     "find_opportunities",
     {
       title: "Oportunidades del momento",
       description:
         "Devuelve los productos con MAYOR descuento vigente y stock real, ordenados por porcentaje de descuento, " +
-        "para recomendar aprovechar ofertas. Cada resultado trae `discountPct`, `saving` (ahorro CLP) y " +
+        `para recomendar aprovechar ofertas. Cada resultado trae \`discountPct\`, \`saving\` (ahorro ${currencyCode}) y ` +
         "`memberSaving` (ahorro extra socio Prime) además de nombre, precio, precio normal, unidad y foto. " +
         "Filtrable por `category` y `minDiscountPct`. Pasar `excludeIds` (ids del carro o frecuentes) para " +
         "destacar solo oportunidades que el usuario aún no tiene. `primeOnly` para ofertas exclusivas de socios. " +

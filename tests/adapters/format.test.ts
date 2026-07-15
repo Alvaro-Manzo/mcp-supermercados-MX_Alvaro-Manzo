@@ -2,17 +2,43 @@ import { describe, expect, it } from "vitest";
 import { formatClp, priceScopeInfo, savingPct } from "../../src/core/format.js";
 
 describe("formatClp", () => {
-  it("formatea CLP con puntos de miles", () => {
-    expect(formatClp(12345)).toBe("$12.345");
-    expect(formatClp(1000000)).toBe("$1.000.000");
+  it("formatea moneda local con miles (MX por defecto)", () => {
+    const prevMarket = process.env.SUPERMERCADOS_MARKET;
+    delete process.env.SUPERMERCADOS_MARKET;
+    expect(formatClp(12345)).toBe("$12,345");
+    expect(formatClp(1000000)).toBe("$1,000,000");
     expect(formatClp(999)).toBe("$999");
     expect(formatClp(0)).toBe("$0");
+    if (prevMarket === undefined) {
+      delete process.env.SUPERMERCADOS_MARKET;
+    } else {
+      process.env.SUPERMERCADOS_MARKET = prevMarket;
+    }
+  });
+
+  it("permite forzar formato chileno con SUPERMERCADOS_MARKET=cl", () => {
+    const prevMarket = process.env.SUPERMERCADOS_MARKET;
+    process.env.SUPERMERCADOS_MARKET = "cl";
+    expect(formatClp(12345)).toBe("$12.345");
+    expect(formatClp(1000000)).toBe("$1.000.000");
+    if (prevMarket === undefined) {
+      delete process.env.SUPERMERCADOS_MARKET;
+    } else {
+      process.env.SUPERMERCADOS_MARKET = prevMarket;
+    }
   });
 
   it("maneja negativos y valores inválidos", () => {
-    expect(formatClp(-1500)).toBe("-$1.500");
+    const prevMarket = process.env.SUPERMERCADOS_MARKET;
+    delete process.env.SUPERMERCADOS_MARKET;
+    expect(formatClp(-1500)).toBe("-$1,500");
     expect(formatClp(undefined)).toBe("—");
     expect(formatClp(NaN)).toBe("—");
+    if (prevMarket === undefined) {
+      delete process.env.SUPERMERCADOS_MARKET;
+    } else {
+      process.env.SUPERMERCADOS_MARKET = prevMarket;
+    }
   });
 });
 

@@ -14,6 +14,7 @@ import { registerSearchProducts } from "./tools/searchProducts.js";
 import { registerSuggestSwaps } from "./tools/suggestSwaps.js";
 import { registerDiscoverBranch } from "./tools/discoverBranch.js";
 import { registerPrompts } from "./prompts.js";
+import { getMarketConfig } from "./core/market.js";
 
 // La versión sale de package.json para que no vuelva a quedar desfasada.
 const { version } = createRequire(import.meta.url)("../package.json") as {
@@ -26,9 +27,11 @@ const { version } = createRequire(import.meta.url)("../package.json") as {
  * cómo reaccionar a errores. El objetivo es que el usuario no tenga que saber
  * de sucursales, tokens ni tools: el modelo lo guía.
  */
-const SERVER_INSTRUCTIONS = `
-Servidor para armar la mejor lista de compra en supermercados chilenos (Jumbo,
-Santa Isabel, Unimarc, Tottus, Lider). Foco: profundidad en la cadena donde el
+function serverInstructions(): string {
+  const market = getMarketConfig();
+  return `
+Servidor para armar la mejor lista de compra en supermercados de ${market.countryName}
+(Jumbo, Santa Isabel, Unimarc, Tottus, Lider). Foco: profundidad en la cadena donde el
 usuario ya compra (precios socio, frecuentes, carro), con la comparación entre
 cadenas como capacidad secundaria.
 
@@ -41,7 +44,7 @@ Cómo guiar al usuario:
   tools respectivas devuelven un browserSnippet de UNA llamada para ejecutar en
   una pestaña logueada del sitio; el usuario pega el JSON de vuelta. NUNCA pidas
   usuario/clave ni intentes extraer el estado de React o el DOM a mano.
-- Precios SIEMPRE en CLP enteros. Usa "price" (vigente), "listPrice" (normal) y
+- Precios SIEMPRE en ${market.currencyCode} enteros. Usa "price" (vigente), "listPrice" (normal) y
   "memberPrice" (socio) sin mezclarlos. Prefiere comparar por precio por unidad.
 - Ante un error, lee su campo "action": dice el siguiente paso concreto para el
   usuario (ej. re-loguearse, reintentar, usar IP residencial). Comunícaselo.
@@ -49,6 +52,7 @@ Cómo guiar al usuario:
 Sugerencias de partida (prompts): armar_lista, comparar_carro, ofertas_frecuentes,
 conectar_sesion.
 `.trim();
+}
 
 export function createServer(): McpServer {
   const server = new McpServer(
@@ -56,7 +60,7 @@ export function createServer(): McpServer {
       name: "mcp-supermercados-cl",
       version,
     },
-    { instructions: SERVER_INSTRUCTIONS }
+    { instructions: serverInstructions() }
   );
 
   // Núcleo: armar la mejor lista con la sesión del usuario
