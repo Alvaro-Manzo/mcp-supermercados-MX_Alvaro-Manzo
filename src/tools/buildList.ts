@@ -7,8 +7,10 @@ import { toolError } from "../core/errors.js";
 import { formatClp, priceScopeInfo, savingPct } from "../core/format.js";
 import type { FrequentCard } from "../core/types.js";
 import { progressNotifier } from "./progress.js";
+import { getMarketConfig } from "../core/market.js";
 
 export function registerBuildList(server: McpServer): void {
+  const { currencyCode } = getMarketConfig();
   server.registerTool(
     "build_list",
     {
@@ -16,7 +18,7 @@ export function registerBuildList(server: McpServer): void {
       description:
         'Convierte una lista en lenguaje natural (ej. ["leche", "arroz 1kg", "café de grano"]) en productos ' +
         "concretos del catálogo, eligiendo por mejor precio por unidad y ofertas vigentes. Devuelve por ítem el " +
-        "producto elegido, hasta 3 alternativas para ajustar, el ahorro por ofertas, y el total estimado en CLP. " +
+        `producto elegido, hasta 3 alternativas para ajustar, el ahorro por ofertas, y el total estimado en ${currencyCode}. ` +
         "Con `branchId` usa precios/stock de esa sucursal. " +
         "Si se entregan los productos frecuentes del usuario en `frequentCards` (desde get_frequent_purchases " +
         "con sesión iniciada), se priorizan: la lista se arma con lo que la persona realmente compra. " +
@@ -51,7 +53,7 @@ export function registerBuildList(server: McpServer): void {
           .positive()
           .optional()
           .describe(
-            "Presupuesto máximo en CLP. Si el total lo supera, baja a alternativas más baratas " +
+            `Presupuesto máximo en ${currencyCode}. Si el total lo supera, baja a alternativas más baratas ` +
               "(sin tocar tus frecuentes) y, si aún se pasa, sugiere qué quitar. No elimina ítems solo."
           ),
         frequentCards: z

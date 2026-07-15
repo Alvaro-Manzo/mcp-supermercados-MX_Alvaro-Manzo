@@ -9,6 +9,7 @@ import {
   bridgeSession,
   getConfiguredBrowserBridge,
 } from "../adapters/browserBridge.js";
+import { getMarketConfig } from "../core/market.js";
 
 /**
  * Cadenas SSR protegidas por antibot que aceptan un puente de navegador: la
@@ -43,15 +44,16 @@ const BROWSER_BRIDGE: Partial<
  * lista, y memberPrice cuando la fuente lo expone sin login.
  */
 export function registerSearchProducts(server: McpServer): void {
+  const { countryName, currencyCode } = getMarketConfig();
   server.registerTool(
     "search_products",
     {
       title: "Buscar productos",
       description:
-        "Busca productos en el catálogo de un supermercado chileno y devuelve resultados enriquecidos: " +
-        "`name`, `brand`, `description`, `imageUrl`, `url`. Precios en CLP: `price` es el precio vigente " +
+        `Busca productos en el catálogo de supermercados de ${countryName} y devuelve resultados enriquecidos: ` +
+        `\`name\`, \`brand\`, \`description\`, \`imageUrl\`, \`url\`. Precios en ${currencyCode}: \`price\` es el precio vigente ` +
         "(con oferta si la hay), `listPrice` el normal cuando hay descuento, `unitPrice`/`unit` el precio por " +
-        "unidad base (kg/lt/un) para comparar formatos. Filtros opcionales: `maxPrice`/`minPrice` (CLP), " +
+        `unidad base (kg/lt/un) para comparar formatos. Filtros opcionales: \`maxPrice\`/\`minPrice\` (${currencyCode}), ` +
         "`inStockOnly`; orden con `sortBy` (price = más barato primero, unitPrice = mejor precio por kg/lt). " +
         "Con `branchId` (sucursal) los precios/stock son de esa tienda. Para el precio socio de un producto " +
         "puntual, usar get_product.",
@@ -86,13 +88,17 @@ export function registerSearchProducts(server: McpServer): void {
           .int()
           .positive()
           .optional()
-          .describe("Filtra productos con precio vigente <= a este valor (CLP)."),
+          .describe(
+            `Filtra productos con precio vigente <= a este valor (${currencyCode}).`
+          ),
         minPrice: z
           .number()
           .int()
           .positive()
           .optional()
-          .describe("Filtra productos con precio vigente >= a este valor (CLP)."),
+          .describe(
+            `Filtra productos con precio vigente >= a este valor (${currencyCode}).`
+          ),
         sortBy: z
           .enum(["relevance", "price", "unitPrice"])
           .default("relevance")

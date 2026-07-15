@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { getMarketConfig } from "./core/market.js";
 
 /**
  * Prompts guiados: plantillas que el cliente MCP muestra como sugerencias
@@ -25,6 +26,8 @@ function userMessage(text: string) {
 }
 
 export function registerPrompts(server: McpServer): void {
+  const { currencyCode } = getMarketConfig();
+
   server.registerPrompt(
     "armar_lista",
     {
@@ -40,13 +43,13 @@ export function registerPrompts(server: McpServer): void {
         presupuesto: z
           .string()
           .optional()
-          .describe('Presupuesto máximo en CLP, ej. "50000". Opcional.'),
+          .describe(`Presupuesto máximo en ${currencyCode}, ej. "50000". Opcional.`),
       },
     },
     ({ items, store, presupuesto }) => {
       const chain = store ?? "jumbo";
       const budget = presupuesto
-        ? ` No superes un presupuesto de $${presupuesto} CLP: si te pasas, avísame qué dejarías fuera.`
+        ? ` No superes un presupuesto de $${presupuesto} ${currencyCode}: si te pasas, avísame qué dejarías fuera.`
         : "";
       return userMessage(
         `Ármame la lista de compra en ${chain} con estos ítems: ${items}. ` +
@@ -119,7 +122,9 @@ export function registerPrompts(server: McpServer): void {
         presupuesto: z
           .string()
           .optional()
-          .describe('Presupuesto máximo total en CLP, ej. "40000". Opcional.'),
+          .describe(
+            `Presupuesto máximo total en ${currencyCode}, ej. "40000". Opcional.`
+          ),
         incluir_tottus_lider: z
           .enum(["si", "no"])
           .optional()
@@ -130,7 +135,7 @@ export function registerPrompts(server: McpServer): void {
     },
     ({ items, presupuesto, incluir_tottus_lider }) => {
       const budget = presupuesto
-        ? ` Objetivo: no pasar de $${presupuesto} CLP en total; si te pasas, dime qué bajar.`
+        ? ` Objetivo: no pasar de $${presupuesto} ${currencyCode} en total; si te pasas, dime qué bajar.`
         : "";
       const extra =
         incluir_tottus_lider === "si"
